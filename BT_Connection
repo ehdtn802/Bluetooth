@@ -184,14 +184,12 @@ public class BluetoothService {
 
         // Send the name of the connected device back to the UI Activity
         Message msg = mHandler
-                .obtainMessage(MRDMainActivity.MESSAGE_DEVICE_NAME);
+                .obtainMessage(###UI Activity###.MESSAGE_DEVICE_NAME);
         Bundle bundle = new Bundle();
-        bundle.putString(MRDMainActivity.DEVICE_NAME, device.getName());
+        bundle.putString(###UI Activity###.DEVICE_NAME, device.getName());
         msg.setData(bundle);
         mHandler.sendMessage(msg);
         setState(STATE_CONNECTED);
-        // 此时进行RHU固件版本检测,发送获取版本请求到RHU
-        write(MDEnCodeAndDeCode.ReadVer_OneRHU(MRDFirmwareStatus.getpID()));
     }
 
     /**
@@ -233,7 +231,7 @@ public class BluetoothService {
         // Perform the write unsynchronized
         r.write(message);
     }
-//여기까지 봤음
+
     /**
      * Indicate that the connection attempt failed and notify the UI Activity.
      */
@@ -241,9 +239,9 @@ public class BluetoothService {
         setState(STATE_LISTEN);
 
         // Send a failure message back to the Activity
-        Message msg = mHandler.obtainMessage(MRDMainActivity.MESSAGE_TOAST);
+        Message msg = mHandler.obtainMessage(###UI Activity###.MESSAGE_TOAST);
         Bundle bundle = new Bundle();
-        bundle.putString(MRDMainActivity.TOAST, "해당 기기에 연결 할 수 없습니다");
+        bundle.putString(###UI Activity###.TOAST, "해당 기기에 연결 할 수 없습니다");
         msg.setData(bundle);
         mHandler.sendMessage(msg);
     }
@@ -263,22 +261,22 @@ public class BluetoothService {
         setState(STATE_LISTEN);
 
         // Send a failure message back to the Activity
-        Message msg = mHandler.obtainMessage(MRDMainActivity.MESSAGE_TOAST);
+        Message msg = mHandler.obtainMessage(###UI Activity###.MESSAGE_TOAST);
         Bundle bundle = new Bundle();
-        bundle.putString(MRDMainActivity.TOAST, "연결이 끊겼습니다"); // Disconnect 连接断开
+        bundle.putString(###UI Activity###.TOAST, "연결이 끊겼습니다"); // Disconnect
         msg.setData(bundle);
         mHandler.sendMessage(msg);
 
-        Message msg2 = mHandler.obtainMessage(MRDMainActivity.MESSAGE_DISCONNECT_BLUETOOTH); // Disconnect 连接断开
+        Message msg2 = mHandler.obtainMessage(MRDMainActivity.MESSAGE_DISCONNECT_BLUETOOTH); // Disconnect
         mHandler.sendMessage(msg2);
 
     }
 
 
     /**
-     * 作为服务器
-     * 如果一个设备需要和两个或多个设备连接时，就需要作为一个server来传输，在android中提供了BluetoothServerSocket类来处理用户发来的信息，
-     * 服务器端套接字在接受(accepted) 一个客户发来的BluetoothSocket时作出相应的响应
+     * As a server
+     * If a device needs to be connected to two or more devices, it needs to be transmitted as a server. The BluetoothServerSocket class is provided in android to process the information sent by the user.
+     * The server socket responds when it accepts (accepted) a BluetoothSocket sent by a client
      * This thread runs while listening for incoming connections. It behaves
      * like a server-side client. It runs until a connection is accepted (or
      * until cancelled).
