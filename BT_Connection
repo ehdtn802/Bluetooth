@@ -1,1 +1,983 @@
 
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigDecimal;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothServerSocket;
+import android.bluetooth.BluetoothSocket;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.support.v4.content.IntentCompat;
+import android.util.Log;
+
+public class BluetoothService {
+    // Debugging
+    private static final String TAG = "BluetoothService";
+    private static final boolean D = true;
+
+    // Name for the SDP record when creating server socket
+    private static final String NAME = "BluetoothChat";
+
+    // Unique UUID for this application
+    private static final UUID MY_UUID = UUID
+            .fromString("UUID 입력");
+
+    // Member fields
+    private final BluetoothAdapter mAdapter;
+    private final Handler mHandler;
+    private AcceptThread mAcceptThread;
+    private ConnectThread mConnectThread;
+    private ConnectedThread mConnectedThread;
+    private int mState;
+
+    private EnCodeAndDeCode EnCodeAndDeCode;
+
+    // Constants that indicate the current connection state
+    public static final int STATE_NONE = 0; // we're doing nothing
+    public static final int STATE_LISTEN = 1; // now listening for incoming
+    public static final int STATE_CONNECTING = 2; // now initiating an outgoing
+    public static final int STATE_CONNECTED = 3; // now connected to a remote
+
+    /**
+     * Constructor. Prepares a new BluetoothChat session.
+     *
+     * @param context The UI Activity Context
+     * @param handler A Handler to send messages back to the UI Activity
+     */
+    public MRDBluetoothService(Context context, Handler handler) {
+        mAdapter = BluetoothAdapter.getDefaultAdapter();
+        mState = STATE_NONE;
+        mHandler = handler;
+        MDEnCodeAndDeCode = new MDEnCodeAndDeCode();
+    }
+
+    /**
+     * Set the current state of the chat connection
+     *
+     * @param state An integer defining the current connection state
+     */
+    private synchronized void setState(int state) {
+        if (D)
+            Log.d(TAG, "setState() " + mState + " -> " + state);
+        mState = state;
+
+        // Give the new state to the Handler so the UI Activity can update
+        mHandler.obtainMessage(###UI Activity###.MESSAGE_STATE_CHANGE, state, -1)
+                .sendToTarget();
+    }
+
+    /**
+     * Return the current connection state.
+     */
+    public synchronized int getState() {
+        return mState;
+    }
+
+    /**
+     * Start the chat service. Specifically start AcceptThread to begin a
+     * session in listening (server) mode. Called by the Activity onResume()
+     */
+    public synchronized void start() {
+        if (D)
+            Log.d(TAG, "start");
+
+        // Cancel any thread attempting to make a connection
+        if (mConnectThread != null) {
+            mConnectThread.cancel();
+            mConnectThread = null;
+        }
+
+        // Cancel any thread currently running a connection
+        if (mConnectedThread != null) {
+            mConnectedThread.cancel();
+            mConnectedThread = null;
+        }
+
+        // Start the thread to listen on a BluetoothServerSocket
+        if (mAcceptThread == null) {
+            mAcceptThread = new AcceptThread();
+            mAcceptThread.start();
+        }
+        setState(STATE_LISTEN);
+    }
+
+    /**
+     * Start the ConnectThread to initiate a connection to a remote device.
+     *
+     * @param device The BluetoothDevice to connect
+     */
+    public synchronized void connect(BluetoothDevice device) {
+        if (D)
+            Log.d(TAG, "connect to: " + device);
+
+        // Cancel any thread attempting to make a connection
+        if (mState == STATE_CONNECTING) {
+            if (mConnectThread != null) {
+                mConnectThread.cancel();
+                mConnectThread = null;
+            }
+        }
+
+        // Cancel any thread currently running a connection
+        if (mConnectedThread != null) {
+            mConnectedThread.cancel();
+            mConnectedThread = null;
+        }
+
+        // Start the thread to connect with the given device
+        mConnectThread = new ConnectThread(device);
+        mConnectThread.start();
+        setState(STATE_CONNECTING);
+    }
+
+    /**
+     * Start the ConnectedThread to begin managing a Bluetooth connection
+     *
+     * @param socket The BluetoothSocket on which the connection was made
+     * @param device The BluetoothDevice that has been connected
+     */
+    public synchronized void connected(BluetoothSocket socket,
+                                       BluetoothDevice device) {
+        if (D)
+            Log.d(TAG, "connected");
+
+        // Cancel the thread that completed the connection
+        if (mConnectThread != null) {
+            mConnectThread.cancel();
+            mConnectThread = null;
+        }
+
+        // Cancel any thread currently running a connection
+        if (mConnectedThread != null) {
+            mConnectedThread.cancel();
+            mConnectedThread = null;
+        }
+
+        // Cancel the accept thread because we only want to connect to one
+        // device
+        if (mAcceptThread != null) {
+            mAcceptThread.cancel();
+            mAcceptThread = null;
+        }
+
+        // Start the thread to manage the connection and perform transmissions
+        mConnectedThread = new ConnectedThread(socket);
+        mConnectedThread.start();
+
+        // Send the name of the connected device back to the UI Activity
+        Message msg = mHandler
+                .obtainMessage(MRDMainActivity.MESSAGE_DEVICE_NAME);
+        Bundle bundle = new Bundle();
+        bundle.putString(MRDMainActivity.DEVICE_NAME, device.getName());
+        msg.setData(bundle);
+        mHandler.sendMessage(msg);
+        setState(STATE_CONNECTED);
+        // 此时进行RHU固件版本检测,发送获取版本请求到RHU
+        write(MDEnCodeAndDeCode.ReadVer_OneRHU(MRDFirmwareStatus.getpID()));
+    }
+
+    /**
+     * Stop all threads
+     */
+    public synchronized void stop() {
+        if (D)
+            Log.d(TAG, "stop");
+        if (mConnectThread != null) {
+            mConnectThread.cancel();
+            mConnectThread = null;
+        }
+        if (mConnectedThread != null) {
+            mConnectedThread.cancel();
+            mConnectedThread = null;
+        }
+        if (mAcceptThread != null) {
+            mAcceptThread.cancel();
+            mAcceptThread = null;
+        }
+        setState(STATE_NONE);
+    }
+
+    /**
+     * Write to the ConnectedThread in an unsynchronized manner
+     *
+     * @param message The bytes to write
+     * @see ConnectedThread#write(byte[])
+     */
+    public void write(byte[] message) {
+        // Create temporary object
+        ConnectedThread r;
+        // Synchronize a copy of the ConnectedThread
+        synchronized (this) {
+            if (mState != STATE_CONNECTED)
+                return;
+            r = mConnectedThread;
+        }
+        // Perform the write unsynchronized
+        r.write(message);
+    }
+//여기까지 봤음
+    /**
+     * Indicate that the connection attempt failed and notify the UI Activity.
+     */
+    private void connectionFailed() {
+        setState(STATE_LISTEN);
+
+        // Send a failure message back to the Activity
+        Message msg = mHandler.obtainMessage(MRDMainActivity.MESSAGE_TOAST);
+        Bundle bundle = new Bundle();
+        bundle.putString(MRDMainActivity.TOAST, "해당 기기에 연결 할 수 없습니다");
+        msg.setData(bundle);
+        mHandler.sendMessage(msg);
+    }
+
+    private void showMsg(String data) {
+        Message msg = mHandler.obtainMessage(MRDMainActivity.MESSAGE_TOAST);
+        Bundle bundle = new Bundle();
+        bundle.putString(MRDMainActivity.TOAST, data);
+        msg.setData(bundle);
+        mHandler.sendMessage(msg);
+    }
+
+    /**
+     * Indicate that the connection was lost and notify the UI Activity.
+     */
+    private void connectionLost() {
+        setState(STATE_LISTEN);
+
+        // Send a failure message back to the Activity
+        Message msg = mHandler.obtainMessage(MRDMainActivity.MESSAGE_TOAST);
+        Bundle bundle = new Bundle();
+        bundle.putString(MRDMainActivity.TOAST, "연결이 끊겼습니다"); // Disconnect 连接断开
+        msg.setData(bundle);
+        mHandler.sendMessage(msg);
+
+        Message msg2 = mHandler.obtainMessage(MRDMainActivity.MESSAGE_DISCONNECT_BLUETOOTH); // Disconnect 连接断开
+        mHandler.sendMessage(msg2);
+
+    }
+
+
+    /**
+     * 作为服务器
+     * 如果一个设备需要和两个或多个设备连接时，就需要作为一个server来传输，在android中提供了BluetoothServerSocket类来处理用户发来的信息，
+     * 服务器端套接字在接受(accepted) 一个客户发来的BluetoothSocket时作出相应的响应
+     * This thread runs while listening for incoming connections. It behaves
+     * like a server-side client. It runs until a connection is accepted (or
+     * until cancelled).
+     */
+    private class AcceptThread extends Thread {
+        // The local server socket
+        private final BluetoothServerSocket mmServerSocket;  // 蓝牙Server端
+
+        public AcceptThread() {
+            BluetoothServerSocket tmp = null; // 使用一个临时对象代替，因为mmServerSocket定义为final
+
+            // Create a new listening server socket
+            try {
+                tmp = mAdapter
+                        .listenUsingRfcommWithServiceRecord(NAME, MY_UUID); //服务仅监听
+            } catch (IOException e) {
+                Log.e(TAG, "listen() failed", e);
+            }
+            mmServerSocket = tmp;
+            Log.d("srvsocket - ", "tmp : " + mmServerSocket);
+
+        }
+
+        public void run() {
+            if (D)
+                Log.d(TAG, "BEGIN mAcceptThread" + this);
+            setName("AcceptThread");
+            BluetoothSocket socket = null;
+
+            // Listen to the server socket if we're not connected
+            while (mState != STATE_CONNECTED) { // 保持连接直到异常发生或套接字返回
+                try {
+                    // This is a blocking call and will only return on a
+                    // successful connection or an exception
+                    socket = mmServerSocket.accept(); // 如果一个连接同意
+                } catch (IOException e) {
+                    Log.e(TAG, "accept() failed", e);
+                    break;
+                }
+
+                // If a connection was accepted
+                if (socket != null) {
+                    synchronized (MRDBluetoothService.this) {
+                        switch (mState) {
+                            case STATE_LISTEN:
+                            case STATE_CONNECTING:
+                                // Situation normal. Start the connected thread.
+                                connected(socket, socket.getRemoteDevice()); //管理一个已经连接的RFCOMM通道在单独的线程。
+                                break;
+                            case STATE_NONE:
+                            case STATE_CONNECTED:
+                                // Either not ready or already connected. Terminate
+                                // new socket.
+                                try {
+                                    socket.close();
+                                } catch (IOException e) {
+                                    Log.e(TAG, "Could not close unwanted socket", e);
+                                }
+                                break;
+                        }
+                    }
+                }
+            }
+            if (D)
+                Log.i(TAG, "=== END mAcceptThread ===");
+        }
+
+        public void cancel() { //取消套接字连接，然后线程返回
+            if (D)
+                Log.d(TAG, "cancel " + this);
+            try {
+                mmServerSocket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "close() of server failed", e);
+            }
+        }
+    }
+
+    /**
+     * 以便初始化一个连接到远程设备，首先必须获取本地的BluetoothDevice对象
+     * This thread runs while attempting to make an outgoing connection with a
+     * device. It runs straight through; the connection either succeeds or
+     * fails.
+     */
+    private class ConnectThread extends Thread {
+        private final BluetoothSocket mmSocket;
+        private final BluetoothDevice mmDevice;
+
+        public ConnectThread(BluetoothDevice device) {
+            mmDevice = device;
+            BluetoothSocket tmp = null;
+
+            // Get a BluetoothSocket for a connection with the
+            // given BluetoothDevice
+            try {
+                tmp = device.createRfcommSocketToServiceRecord(MY_UUID); //客户端创建
+            } catch (IOException e) {
+                Log.e(TAG, "create() failed", e);
+            }
+            mmSocket = tmp;
+        }
+
+        public void run() {
+            Log.i(TAG, "=== BEGIN mConnectThread ===");
+            setName("ConnectThread");
+
+            // Always cancel discovery because it will slow down a connection
+            mAdapter.cancelDiscovery(); //取消发现远程设备，这样会降低系统性能
+
+            // Make a connection to the BluetoothSocket
+            try {
+                // This is a blocking call and will only return on a
+                // successful connection or an exception
+                mmSocket.connect();
+            } catch (IOException e) {
+                connectionFailed();
+                // Close the socket
+                try {
+                    mmSocket.close();
+                } catch (IOException e2) {
+                    Log.e(TAG,
+                            "unable to close() socket during connection failure",
+                            e2);
+                }
+                // Start the service over to restart listening mode
+                MRDBluetoothService.this.start();
+                return;
+            }
+
+            // Reset the ConnectThread because we're done
+            synchronized (MRDBluetoothService.this) {
+                mConnectThread = null;
+            }
+
+            // Start the connected thread
+            connected(mmSocket, mmDevice); // manageConnectedSocket(cwjSocket); 管理一个已经连接的RFCOMM通道在单独的线程。
+
+
+        }
+
+        public void cancel() {
+            try {
+                mmSocket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "close() of connect socket failed", e);
+            }
+        }
+    }
+
+    /**
+     * 在Java上处理数据流很简单，提供了InputSream、OutputSream和字节数组的之间的转化。
+     * This thread runs during a connection with a remote device.
+     * It handles all incoming and outgoing transmissions.
+     */
+    @SuppressLint("SimpleDateFormat")
+    private class ConnectedThread extends Thread {//여기 이 스레드가 해당 소캣으로 요청보내고 받아오고 하는 클래스
+        private final BluetoothSocket mmSocket; // 客户端
+        private final InputStream mmInStream;
+        private final OutputStream mmOutStream;
+
+        // private final ObjectOutputStream mmObjOutStream;
+
+        public ConnectedThread(BluetoothSocket socket) {
+            Log.d(TAG, "create ConnectedThread");
+            mmSocket = socket;
+            InputStream tmpIn = null; // 上面定义的为final这是使用temp临时对象
+            OutputStream tmpOut = null;
+            // ObjectOutputStream tmpObjOut = null;
+
+            // Get the BluetoothSocket input and output streams
+            try {
+                tmpIn = socket.getInputStream(); //使用getInputStream作为一个流处理
+                tmpOut = socket.getOutputStream();
+
+
+                // tmpObjOut = new ObjectOutputStream(tmpOut);
+            } catch (IOException e) {
+                Log.e(TAG, "temp sockets not created", e);
+            }
+
+            mmInStream = tmpIn;
+            mmOutStream = tmpOut;
+            // mmObjOutStream = tmpObjOut;
+        }
+
+        public void run() {
+            // 在这里一个字节一个字节的读取，并进行协议判断
+            Log.i(TAG, "=== BEGIN mConnectedThread ===");
+            int len_mid = 0;
+            if (MRDMainActivity.bts_WHO == 1) {
+                len_mid = 13;
+            } else {
+                len_mid = 4;
+            }
+            List<Byte> iTmpUARTBuffer = new ArrayList<Byte>(); // 定义上行数据包缓冲区
+            List<Integer> checkBuffer = new ArrayList<Integer>();
+            List<Byte> UARTBuffer = new ArrayList<Byte>(); // 完成的数据包存储区
+            int iTmp, iCheck, iCmd, iSta, iVolt, iRead, iLen, bytes, iPID, iiLen, iRPDID,GID = 0;
+            // iCheck为明文校验和
+            long iiRead = 0, iMID_temp = 0;
+            String iMID = "";
+            iRPDID = iTmp = iPID = iCheck = iVolt = iSta = bytes = iiLen = 0;
+            iTmpUARTBuffer.clear();
+            checkBuffer.clear();
+            UARTBuffer.clear();
+            while (true) {
+                try {
+                    bytes = mmInStream.read();
+                } catch (IOException e) {
+                    bytes = -1;
+                    iTmpUARTBuffer.clear();
+                    checkBuffer.clear();
+                    UARTBuffer.clear();
+                    Log.e(TAG, "disconnected", e);
+                    connectionLost();
+                    break;
+                }
+                if (bytes == -1) {
+                    iTmpUARTBuffer.clear();
+                    checkBuffer.clear();
+                    UARTBuffer.clear();
+                    continue;
+                }
+
+                if (bytes != 0x24 && iTmpUARTBuffer.size() == 0) { // 串口上行数据协议    帧头（0x24）
+                    continue;
+                }
+
+                iTmpUARTBuffer.add((byte) bytes);//그 다음  iTmpUARTBuffer 여기로들어가고
+                checkBuffer.add(bytes);
+                if (iTmpUARTBuffer.size() < 2) {
+                    continue;
+                }
+                // 取出密文长度
+                iiLen = iTmpUARTBuffer.get(1); // 密文长度(从PIDH~CS字节加密后的数据长度),一个字节
+                if (iiLen < 5 + len_mid || iiLen > 24 + len_mid) {  //最小长度是8， 最大长度是27 = 8+16+3
+                    Log.e(TAG, "암호문 길이가 잘못되었습니다.");
+                    iTmpUARTBuffer.clear();
+                    checkBuffer.clear();
+                    continue;
+                }
+                // 取出数据包总长度
+                iLen = iiLen + 3;  // 数据包总长度
+
+                //得到的总长度小于数据包总长度，重来
+                if (iTmpUARTBuffer.size() < iLen) {
+                    continue;
+                }
+
+                if (iTmpUARTBuffer.size() == iLen) {
+                    byte[] msg = new byte[iTmpUARTBuffer.size()];
+                    for (int i = 0; i < iTmpUARTBuffer.size(); i++) {
+                        msg[i] = iTmpUARTBuffer.get(i);
+
+                    }
+
+                    StringBuilder sb = new StringBuilder();
+                    for (final byte b : msg) {
+                        sb.append(String.format("%02x ", b & 0xff));
+                    }
+                    Log.d("UpData Stream", "Law Msg : " + checkBuffer);
+
+                    Log.d("UpData Stream", "Law Msg(hex) : " + sb.toString());
+                }
+
+
+                // 计算明文校验和，从PIDH~RSSI的校验和取低字节。W
+                for (iCheck = 0, iTmp = 0; iTmp < iLen - 1; iTmp++) {
+                    iCheck += (iTmpUARTBuffer.get(iTmp) & 0xFF);
+                }
+                if ((iTmpUARTBuffer.get(iLen - 1) & 0xFF) != (iCheck & 0xFF)) {
+                    Log.e(TAG, "解密前的数据校验错误");
+                    iTmpUARTBuffer.clear();
+                    checkBuffer.clear();
+                    continue;
+                }
+
+                /******************************* FOR DEBUG ***********************************/
+                // String readMessage = "";
+                // for (iTmp = 0; iTmp < iLen; iTmp++) {
+                // if (iTmpUARTBuffer.get(iTmp) < 0) {
+                // readMessage += Integer.toHexString((255 + iTmpUARTBuffer
+                // .get(iTmp)) + 1);
+                // } else {
+                // readMessage += Integer
+                // .toHexString(iTmpUARTBuffer.get(iTmp));
+                // }
+                // readMessage += " ";
+                // }
+                // Log.i(TAG, "=== rec data ===" + readMessage);
+                /******************************* FOR DEBUG ***********************************/
+
+                // 校验对了，接下来应该把数据取出来进行解密操作，首先去掉头和尾,顺序一定要注意
+                iTmpUARTBuffer.remove(iLen - 1);  // 丢掉尾SUM
+                iTmpUARTBuffer.remove(1); // 密文长度  从PIDH~CS字节加密后的数据长度
+                iTmpUARTBuffer.remove(0); // FH 上行帧头 0x24
+                UARTBuffer.clear();
+                UARTBuffer = MDEnCodeAndDeCode.DeCode(iTmpUARTBuffer, iiLen); // 그다음  UARTBuffer 여기로
+                /////////////////////////////////////////////////////////////////////////////////////////////////
+                byte[] dcmsg = new byte[UARTBuffer.size()];
+                for (int i = 0; i < UARTBuffer.size(); i++) {
+                    dcmsg[i] = UARTBuffer.get(i);
+                }
+
+                StringBuilder sb = new StringBuilder();
+                for (final byte b : dcmsg) {
+                    sb.append(String.format("%02x ", b & 0xff));
+                }
+                Log.d("UpData Stream", "Decode Msg : " + UARTBuffer);
+
+                Log.d("UpData Stream", "Decode Msg(hex) : " + sb.toString());
+
+
+                /////////////////////////////////////////////////////////////////////////
+                iTmpUARTBuffer.clear();
+                checkBuffer.clear();
+                iLen = UARTBuffer.size();
+                // 计算明文校验
+                for (iCheck = 0, iTmp = 0; iTmp < iLen - 1; iTmp++) {
+                    iCheck += (UARTBuffer.get(iTmp) & 0xFF);
+                }
+
+                if ((UARTBuffer.get(iLen - 1) & 0xFF) != (iCheck & 0xFF)) {
+                    iTmpUARTBuffer.clear();
+                    checkBuffer.clear();
+                    Log.e(TAG, "解密后的数据校验错误");
+                    continue;
+                }
+
+                /******************************* FOR DEBUG ***********************************/
+                // String readMessage = "";
+                // for (iTmp = 0; iTmp < iLen; iTmp++) {
+                // if (UARTBuffer.get(iTmp) < 0) {
+                // readMessage += Integer.toHexString((255 + UARTBuffer
+                // .get(iTmp)) + 1);
+                // } else {
+                // readMessage += Integer
+                // .toHexString(UARTBuffer.get(iTmp));
+                // }
+                // readMessage += " ";
+                // }
+                // Log.i("=== rec data ===", readMessage);
+                /******************************* FOR DEBUG ***********************************/
+
+                // 取出项目ID
+                iPID = (UARTBuffer.get(1) & 0xFF);
+                iPID |= ((UARTBuffer.get(0) << 8) & 0xFF00);
+                MRDFirmwareStatus.setpID(iPID);
+                Log.d("블루투스 모드", "" + len_mid);
+
+                Message message = new Message();
+                // CTR：控制字，0x00=上行用户数据；0x01=上行RHU-PDAD固件版本信息;
+                // 0x02=上行升级请求数据包; 0x03~0xFF预留区别信息分类
+                switch (UARTBuffer.get(4)) { // 여기서 어떤 요청이엿냐에 따라 갈림################################
+                    case 0x00:
+                        if (len_mid == 4) {
+                            if (UARTBuffer.size() != 24) { // 24只是密文的总长度
+                                break;
+                            }
+                        } else if (len_mid == 13) {
+                            if (UARTBuffer.size() != 33) { // 24只是密文的总长度
+                                break;
+                            }
+                        }
+
+
+                        if (len_mid == 13) {
+                            for (int i = 6; i < 5 + len_mid; i++) {
+                                if (!((int) (UARTBuffer.get(i)) == 0)) {
+                                    iMID += (char) ((int) (UARTBuffer.get(i)));
+                                }
+                            }
+                        } else {
+                            iMID_temp = (UARTBuffer.get(5 + len_mid) & 0xFF);
+                            iMID_temp |= ((UARTBuffer.get(4 + len_mid) << 8) & 0xFF00);
+                            iMID_temp |= ((UARTBuffer.get(3 + len_mid) << 16) & 0xFF0000);
+                            iMID_temp |= ((UARTBuffer.get(2 + len_mid) << 24) & 0xFF000000);
+                            iMID = String.valueOf(iMID_temp);
+                        }
+
+                        // RPDID 集中器ID
+                        iRPDID = (UARTBuffer.get(9 + len_mid) & 0xFF);
+                        iRPDID |= ((UARTBuffer.get(8 + len_mid) << 8) & 0xFF00);
+                        iRPDID |= ((UARTBuffer.get(7 + len_mid) << 16) & 0xFF0000);
+                        // 取出多个命令字
+                        iCmd = (UARTBuffer.get(6 + len_mid) & 0xFF); // TPN 表计属性
+                        iSta = (UARTBuffer.get(11 + len_mid) & 0xFF); // 表的状态字
+                        iVolt = (UARTBuffer.get(12 + len_mid) & 0xFF); // 电压，安全电压3.1V
+                        // 取出表读数
+                        iRead = (UARTBuffer.get(16 + len_mid) & 0xFF); // 读数
+                        iRead |= ((UARTBuffer.get(15 + len_mid) << 8) & 0xFF00);
+                        iRead |= ((UARTBuffer.get(14 + len_mid) << 16) & 0xFF0000);
+                        iRead |= ((UARTBuffer.get(13 + len_mid) << 24) & 0xFF000000);
+
+                        MDUpDataPro md_up_data = new MDUpDataPro();
+                        // 取出RHU电池电压，单位为百分比
+                        md_up_data.setM_RHU_Battery(UARTBuffer.get(3));
+                        // 取出场强值
+                        md_up_data.setM_Meter_MDRSSI(UARTBuffer.get(18 + len_mid));
+
+                        // 取出RPR
+                        md_up_data.setM_Meter_RPR(UARTBuffer.get(10 + len_mid));
+                        // 取出PID
+                        md_up_data.setM_Meter_PID(MRDFirmwareStatus.getpID());
+                        // 取出表ID
+                        md_up_data.setM_Meter_ID(iMID);
+
+                        Log.d("아이디", "아이디 스트링 : " + iMID);
+
+                        // get RPDID
+                        md_up_data.setM_Meter_RPDID(iRPDID);
+                        // 取出表类型
+                        switch (iCmd & 0xC0) {
+                            case 0x00:
+                                md_up_data.setM_Meter_Type((byte) 0x00);
+                                break;
+                            case 0x40:
+                                md_up_data.setM_Meter_Type((byte) 0x01);
+                                break;
+                            case 0x80:
+                                md_up_data.setM_Meter_Type((byte) 0x02);
+                                break;
+                            default:
+                                break;
+                        }
+                        // 取出表脉冲常数
+                        md_up_data.setM_Meter_PN((iCmd & 0x07));
+                        // 取出计量故障标志
+                        md_up_data.setM_Meter_MeasureFail((iSta & 0x02) >> 1);
+                        // 取出阀门状态
+                        md_up_data.setM_Meter_ValveState((iSta & 0x04) >> 2);
+                        // 取出断线状态
+                        md_up_data.setM_Meter_valveFault((iSta & 0x80) >> 7);
+                        // 取出数据方向
+                        md_up_data.setM_Meter_DataDirection((iSta & 0x40) >> 6);
+                        // 取出计量模式
+                        md_up_data.setM_Meter_MeasurementMode((iCmd & 0x20) >> 5);
+                        // 取出磁攻击状态
+                        md_up_data.setM_Meter_bAttack((iSta & 0x20) >> 5);
+                        // 取出测试信号标志
+                        md_up_data.setM_Meter_powerFail((iSta & 0x10) >> 4);
+                        // 取出DER状态
+                        md_up_data.setM_Meter_DER((iSta & 0x08) >> 3);
+
+                        Log.d("배터리값 :", "" + iVolt);
+                        // 取出电压
+
+                        if (MRDMainActivity.bts_WHO == 1) {
+                            if (MRDMainActivity.mB11BEnable.equals("1")) {
+                                BigDecimal iVolt_double = new BigDecimal("0");
+                                BigDecimal voltage_int = new BigDecimal(String.valueOf((iVolt & 0x7F)));
+                                BigDecimal constant = new BigDecimal("10");
+                                iVolt_double = voltage_int.divide(constant, 1, BigDecimal.ROUND_DOWN);
+                                md_up_data
+                                        .setM_Meter_Voltage(Double.parseDouble(iVolt_double.toString()));
+                            } else {
+                                BigDecimal iVolt_double = new BigDecimal("0");
+                                BigDecimal voltage_int = new BigDecimal(String.valueOf((iVolt & 0xFF)));
+                                BigDecimal constant = new BigDecimal("10");
+                                iVolt_double = voltage_int.divide(constant, 1, BigDecimal.ROUND_DOWN);
+                                md_up_data
+                                        .setM_Meter_Voltage(Double.parseDouble(iVolt_double.toString()));
+                            }
+                        } else {
+                            if (MRDMainActivity.mB11BEnable.equals("1")) {
+                                md_up_data
+                                        .setM_Meter_Voltage((double) (((iVolt & 0x7F) * 1.00) / 21.6));
+                            } else {
+                                md_up_data
+                                        .setM_Meter_Voltage((double) (((iVolt & 0xFF) * 1.00) / 21.6));
+                            }
+                        }
+
+                        // 解析读数
+                        iiRead = MRDMainActivity.getUnsignedIntt(iRead);
+                        switch (md_up_data.getM_Meter_PN()) {
+                            case 0x00: // PN=000: 直读表；
+                                md_up_data.setM_Meter_Reading(iiRead);
+                                break;
+                            case 0x03:  // PN=011: 1个计量脉冲计1升
+                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 1000);
+                                break;
+                            case 0x04: // PN=100: 1个计量脉冲计10升；
+                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 100);
+                                break;
+                            case 0x05: // PN=101: 1个计量脉冲计100升；
+                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 10);
+                                break;
+                            case 0x06: // PN=110: 1个计量脉冲计1000升；
+                                md_up_data.setM_Meter_Reading(iiRead);
+                                break;
+                        }
+
+                        md_up_data.InitM_Meter_UserMsg(); //최종적으로  md_up_data 여기로 들어감
+
+                        // 接受时间， 是解析数据包后，web服务器的及时时间
+                        md_up_data.setM_Meter_ReadTime((new SimpleDateFormat(
+                                "yyyy-MM-dd HH:mm:ss"))
+                                .format(new java.util.Date()));
+                        // 数据解析完毕,发送消息到UI主线程，进行UI更新     //传递给UI线程
+
+
+                        Log.d("sendToHandler", "Handler Msg : " + md_up_data);
+                        iMID = "";
+                        mHandler.obtainMessage(MRDMainActivity.MESSAGE_UIUPDATA,
+                                md_up_data).sendToTarget();
+                        break;
+
+                    case 0x01:
+                        Log.i(TAG, "=== 收到RHU上报的版本信息 ===");
+                        // 当前返回有4种情况：
+                        // HAC-RHU-BOOT V
+                        // HAC-RHU-PDAD V
+                        // HAC-RHU-B21A V
+                        // HAC-RHU-PADT V
+                        // HAC-WTT-RHU V
+                        if ((UARTBuffer.get(10 + len_mid) != 'B') || (UARTBuffer.get(11 + len_mid) != '2')
+                                || (UARTBuffer.get(12 + len_mid) != '1') || (UARTBuffer.get(13 + len_mid) != 'A')) {
+                            // 当前RHU不是PDAD，需要把程序升级为PDAD
+//						Log.i(TAG, "=== 收到RHU上报的设备信息不是HAC-RHU-PDAD ===");
+                            message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
+                            mHandler.sendMessage(message);
+                            // 开始升级，发送命令使RHU进入升级状态
+                            write(MDEnCodeAndDeCode
+                                    .StartUpgrade_OneRHU_MD(MRDFirmwareStatus.getpID()));
+                        } else if ((int) (UARTBuffer.get(16 + len_mid) & 0x00FF) < MRDFirmwareStatus
+                                .getiVer()) {
+                            // 当前RHU不是最新版本, 需要进行版本升级
+//						Log.i(TAG, "=== 当前RHU不是最新版本, 需要进行版本升级 ===");
+                            message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
+                            mHandler.sendMessage(message);
+                            // 开始升级，发送命令使RHU进入升级状态
+                            write(MDEnCodeAndDeCode
+                                    .StartUpgrade_OneRHU_MD(MRDFirmwareStatus.getpID()));
+                        } else {
+                            // 这是不需要升级，清空保存的升级数据
+                            MRDFirmwareStatus.setDataPacketClear();
+                            message.what = MRDMainActivity.MESSAGE_PID_SUCCESS;
+                            mHandler.sendMessage(message);
+                            break;
+                        }
+                        break;
+
+                    case 0x02:
+                        switch (UARTBuffer.get(7)) {
+                            case 0x01:
+                                // 请求获取升级包包数和总的CRC校验，需要回复
+                                Log.i(TAG, "=== 请求获取升级包大小 ===");
+                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
+                                mHandler.sendMessage(message);
+                                write(MDEnCodeAndDeCode.SendFirmwareInfo_OneMR(
+                                        MRDFirmwareStatus.getpID(),
+                                        MRDFirmwareStatus.getPacketSize()));
+                                break;
+                            case 0x02:
+                                // 请求的升级包序号,需要回复相应的数据包
+                                MRDFirmwareStatus.setPackgeSeq(UARTBuffer.get(8));
+                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
+                                mHandler.sendMessage(message);
+                                Log.i(TAG, "=== 请求的升级包序号 ===" + UARTBuffer.get(8));
+                                write(MDEnCodeAndDeCode
+                                        .SendFirmwareData_OneMR(UARTBuffer.get(8)));
+
+
+                                break;
+                            case 0x03:
+                                // 升级成功, 正在跳转至应用程序
+                                Log.i(TAG, "=== RHU升级成功 ===");
+                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_SUCCESS;
+                                mHandler.sendMessage(message);
+                                break;
+                            case 0x04:
+                                if (UARTBuffer.get(8) == 0x01) {
+                                    Log.i(TAG, "=== 程序校验失败 ===");
+                                    message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_CSERROR;
+                                } else if (UARTBuffer.get(8) == 0x02) {
+                                    Log.i(TAG, "=== 升级程序接收超时 ===");
+                                    message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_TIMEOUT;
+                                }
+                                mHandler.sendMessage(message);
+                                break;
+                        }
+                        break;
+
+                    case 0x03: //AMI-R 버전 수신
+                        Log.d("AMI-R", "버전 : " + UARTBuffer.get(2) + " " + UARTBuffer.get(3));
+                        break;
+
+                    case 0x04: //그룹 ID 변경 성공여부 확인
+                        Log.d("버전 확인 테스트", "버전 : " + UARTBuffer.get(0) + " " + UARTBuffer.get(1));
+                        Message msgGID = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
+                        Bundle bundleGID = new Bundle();
+                        bundleGID.putString(MRDMainActivity.SET_MODE, "GID");
+                        msgGID.setData(bundleGID);
+                        mHandler.sendMessage(msgGID);
+                        break;
+
+                    case 0x05: //RF모드 변경 성공여부 확인
+                        Log.d("RF모드 변경", "CTR : " + UARTBuffer.get(4));
+                        Message msgRF = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
+                        Bundle bundleRF = new Bundle();
+                        bundleRF.putString(MRDMainActivity.SET_MODE, "RF");
+                        msgRF.setData(bundleRF);
+                        mHandler.sendMessage(msgRF);
+                        break;
+
+                    case 0x06: //리셋 성공 여부 확인
+                        Log.d("리셋", "CTR : " + UARTBuffer.get(4));
+                        Message msgRS = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
+                        Bundle bundleRS = new Bundle();
+                        bundleRS.putString(MRDMainActivity.SET_MODE, "RESET");
+                        msgRS.setData(bundleRS);
+                        mHandler.sendMessage(msgRS);
+                        break;
+
+                    case 0x07: //그룹검침 준비 완료
+                        GID = (UARTBuffer.get(8) & 0xFF); // 读数
+                        GID |= ((UARTBuffer.get(7) << 8) & 0xFF00);
+                        GID |= ((UARTBuffer.get(6) << 16) & 0xFF0000);
+                        GID |= ((UARTBuffer.get(5) << 24) & 0xFF000000);
+                        Log.d("그룹검침 준비완료", "그룹ID : " + GID );
+                        if(GID == Integer.parseInt(MRDMainActivity.gr_id.getText().toString())){
+                            message.what = MRDMainActivity.MESSAGE_MD_GROUP_READY;
+                            mHandler.sendMessage(message);
+                        }
+                        break;
+
+                    case 0x08: //그룹검침 종료
+                        GID = (UARTBuffer.get(8) & 0xFF); // 读数
+                        GID |= ((UARTBuffer.get(7) << 8) & 0xFF00);
+                        GID |= ((UARTBuffer.get(6) << 16) & 0xFF0000);
+                        GID |= ((UARTBuffer.get(5) << 24) & 0xFF000000);
+                        Log.d("그룹검침 종료", "그룹ID : " + GID );
+                        if(GID == Integer.parseInt(MRDMainActivity.gr_id.getText().toString())){
+                            message.what = MRDMainActivity.MESSAGE_MD_GROUP_END;
+                            mHandler.sendMessage(message);
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        /**
+         * Write to the connected OutStream.
+         *
+         * @param message The bytes to write
+         */
+        public void write(byte[] message) {
+
+            byte[] outmsg = null;
+            ByteArrayOutputStream output;
+            ByteArrayInputStream input;
+            input = new ByteArrayInputStream(message);
+            output = new ByteArrayOutputStream();
+            int data = 0;
+            while ((data = input.read()) != -1) {
+                output.write(data);
+            }
+            outmsg = output.toByteArray();
+
+
+            if (message == null) {
+                Log.e(TAG, "=== 发送的数据为空！ ===");
+            }
+            StringBuilder sb = new StringBuilder();
+            for (final byte b : message) {
+                sb.append(String.format("%02x ", b & 0xff));
+            }
+            Log.d("LAWDATA - ", "outputStream : " + Arrays.toString(outmsg));
+            Log.d("LAWDATA - ", "outputStream(hex) : " + sb.toString());
+
+            /******************** FOR DEBUG **********************************/
+            // String readMessage = "";
+            // for (int iTmp = 0; iTmp < message.length; iTmp++) {
+            // if (message[iTmp] < 0) {
+            // readMessage += Integer
+            // .toHexString((255 + message[iTmp]) + 1);
+            // } else {
+            // readMessage += Integer.toHexString(message[iTmp]);
+            // }
+            // readMessage += " ";
+            // }
+            // Log.i(TAG, "=== send data ===" + readMessage);
+            /******************** FOR DEBUG **********************************/
+            try {
+                mmOutStream.write(message);
+
+            } catch (IOException e) {
+                Log.e(TAG, "Exception during write", e);
+            }
+        }
+
+        public void cancel() {
+            try {
+                mmSocket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "close() of connect socket failed", e);
+            }
+        }
+    }
+}
