@@ -1,0 +1,94 @@
+
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import android.content.Context;
+import android.util.Log;
+
+public class EnCodeAndDeCode {
+	private static final String TAG = "MDEnCodeAndDeCode";
+	/******************************** 上下行命令宏 **************************/
+	public static final int MR_DOWNLINK_FRAME_HEADER = 0x26; // "模块MR"下行帧头标志
+	public static final int MR_DOWNLINK_RFU_FRAME = 0x01; // "模块MR"的升级命令
+	public static final int CRC16_POLY = 0x1021; // CRC16校验多项式
+
+	/**********************************************************************/
+	/*
+	 * 加密函数 入口参数说明: List<Byte> uStr 需要加密的数据 int iLen 需要加密的数据的长度 返回值 List<Byte>
+	 * 加密后的数据
+	 */
+	public static List<Byte> EnCode(List<Byte> uStr, int iLen) {
+		byte[] ENCODE = { 0x9, 0xa, 0xf, 0x4, 0x7, 0xc, 0x5, 0x0, 0xd, 0xb,
+				0x1, 0x6, 0xe, 0x2, 0x8, 0x3 };
+		List<Byte> EnStr = new ArrayList<Byte>();
+		byte iTmp;
+		int i, cEncyLoc; // 密钥 之 起始位置
+		int cEncyKey; // 密钥 之 加密值
+
+		// 检查长度的有效性
+		if (iLen == 0 || iLen > 600) {
+			return null; // 长度不符要求
+		}
+		// 先生成密钥 取随机数min+(int)(Math.random()*(max-min+1))	min 最小值  max 最大值
+		// 这里取0-255 0+(int)(Math.random()*(255-0+1))	min 最小值  max 最大值
+		cEncyLoc = ((int)(Math.random()*256)) & 0x0000F;
+		while (cEncyLoc >= iLen)
+			cEncyLoc -= iLen; // 保证起始位置不会越界
+		if (0 == cEncyLoc)
+			cEncyLoc++; // 保证起始位置不会是0，其在1-iLen间
+
+		// 这里取0-255 0+(int)(Math.random()*(255-0+1))	min 最小值  max 最大值
+		cEncyKey = ((int)(Math.random()*256)) & 0x0000F;
+		// EnStr[0]放置密钥，在其低半字节指示的位置后的连续iLen字节，开始放置加密数据
+		// 在其高半字节是用来加密的值
+		// 为防止出现数据越界的情况，先将EnStr填充iLen+1个值
+		for (i = 0; i< iLen + 1; i++){
+			EnStr.add((byte)i);
+		}
+		// 设置第一个值
+		EnStr.set(0, (byte) ((cEncyKey << 4) | cEncyLoc));
+		// 再生成加密串
+		for (i = 0; i < iLen; i++) {
+			iTmp = (byte) ((uStr.get(i) & 0xF0) | ENCODE[uStr.get(i) & 0x0F]); // 将每个字节按ENCODE进行加密转换
+			iTmp ^= cEncyKey; // 然后再异或一个数据，该数据第一次取的是密钥，随后每次取的是前一个已生成的加密数据
+			EnStr.set(cEncyLoc++, iTmp); // 将此已加密的数据放入串中
+			cEncyKey = iTmp; // 将密钥置成该数据
+			if (cEncyLoc >= iLen + 1)
+				cEncyLoc = 1;
+		}
+		return EnStr;
+	}
+
+	/*
+	 * 入口参数说明: List<Byte> uStr 需要解密的数据 int iLen 需要解密的数据的长度 返回值 List<Byte> 解密后的数据
+	 */
+	public List<Byte> DeCode(List<Byte> uStr, int iLen) {
+		byte[] DECODE = { 0x7, 0xa, 0xd, 0xf, 0x3, 0x6, 0xb, 0x4, 0xe, 0x0,
+				0x1, 0x9, 0x5, 0x8, 0xc, 0x2 };
+		List<Byte> DeStr = new ArrayList<Byte>();
+		byte i, iTmp;
+		byte cEncyLoc; // 密钥 之 起始位置
+		byte cEncyKey; // 密钥 之 加密值
+
+		if (iLen < 2) {
+			return null;
+		}
+		// uStr[0]放置密钥，在其低半字节指示的位置后的连续iLen字节，开始放置加密数据
+		// 在其高半字节是用来加密的值
+		// 先生取出密钥
+		cEncyLoc = (byte) (uStr.get(0) & 0x0F); // 密钥 之 起始位置,
+		cEncyKey = (byte) ((uStr.get(0) & 0xF0) >> 4); // 密钥 之 加密值
+
+		// 再解密串
+		// 解密的过程与加密正相反
+		for (i = 1; i < iLen; i++) {
+			iTmp = (byte) (uStr.get(cEncyLoc) ^ cEncyKey); // 先将起始位置的那个字节与密钥异或，将其还原
+			DeStr.add((byte) ((iTmp & 0xF0) | DECODE[iTmp & 0x0F])); // 再将其将DECODE表进行转换，这样就得到了其正确的数据
+			cEncyKey = uStr.get(cEncyLoc); // 将正确的数据放入串中
+			if (++cEncyLoc >= iLen)
+				cEncyLoc = 1;
+		}
+		return DeStr;
+	}
+}
