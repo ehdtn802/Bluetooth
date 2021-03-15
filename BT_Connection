@@ -283,15 +283,15 @@ public class BluetoothService {
      */
     private class AcceptThread extends Thread {
         // The local server socket
-        private final BluetoothServerSocket mmServerSocket;  // 蓝牙Server端
+        private final BluetoothServerSocket mmServerSocket;  // BT Server
 
         public AcceptThread() {
-            BluetoothServerSocket tmp = null; // 使用一个临时对象代替，因为mmServerSocket定义为final
+            BluetoothServerSocket tmp = null;
 
             // Create a new listening server socket
             try {
                 tmp = mAdapter
-                        .listenUsingRfcommWithServiceRecord(NAME, MY_UUID); //服务仅监听
+                        .listenUsingRfcommWithServiceRecord(NAME, MY_UUID); //only recieve service
             } catch (IOException e) {
                 Log.e(TAG, "listen() failed", e);
             }
@@ -307,11 +307,11 @@ public class BluetoothService {
             BluetoothSocket socket = null;
 
             // Listen to the server socket if we're not connected
-            while (mState != STATE_CONNECTED) { // 保持连接直到异常发生或套接字返回
+            while (mState != STATE_CONNECTED) { // Keep the connection until an exception occurs or the socket returns
                 try {
                     // This is a blocking call and will only return on a
                     // successful connection or an exception
-                    socket = mmServerSocket.accept(); // 如果一个连接同意
+                    socket = mmServerSocket.accept(); // If a connection agrees
                 } catch (IOException e) {
                     Log.e(TAG, "accept() failed", e);
                     break;
@@ -324,7 +324,7 @@ public class BluetoothService {
                             case STATE_LISTEN:
                             case STATE_CONNECTING:
                                 // Situation normal. Start the connected thread.
-                                connected(socket, socket.getRemoteDevice()); //管理一个已经连接的RFCOMM通道在单独的线程。
+                                connected(socket, socket.getRemoteDevice()); //Manage an already connected RFCOMM channel in a separate thread。
                                 break;
                             case STATE_NONE:
                             case STATE_CONNECTED:
@@ -344,7 +344,7 @@ public class BluetoothService {
                 Log.i(TAG, "=== END mAcceptThread ===");
         }
 
-        public void cancel() { //取消套接字连接，然后线程返回
+        public void cancel() { //Cancel the socket connection, and then the thread returns
             if (D)
                 Log.d(TAG, "cancel " + this);
             try {
@@ -356,7 +356,7 @@ public class BluetoothService {
     }
 
     /**
-     * 以便初始化一个连接到远程设备，首先必须获取本地的BluetoothDevice对象
+     * In order to initialize a connection to a remote device, you must first obtain the local BluetoothDevice object
      * This thread runs while attempting to make an outgoing connection with a
      * device. It runs straight through; the connection either succeeds or
      * fails.
@@ -372,7 +372,8 @@ public class BluetoothService {
             // Get a BluetoothSocket for a connection with the
             // given BluetoothDevice
             try {
-                tmp = device.createRfcommSocketToServiceRecord(MY_UUID); //客户端创建
+                tmp = device.createRfcommSocketToServiceRecord(MY_UUID); // Client creation
+
             } catch (IOException e) {
                 Log.e(TAG, "create() failed", e);
             }
@@ -384,7 +385,7 @@ public class BluetoothService {
             setName("ConnectThread");
 
             // Always cancel discovery because it will slow down a connection
-            mAdapter.cancelDiscovery(); //取消发现远程设备，这样会降低系统性能
+            mAdapter.cancelDiscovery(); //Cancel the discovery of remote devices, which will reduce system performance
 
             // Make a connection to the BluetoothSocket
             try {
@@ -412,7 +413,7 @@ public class BluetoothService {
             }
 
             // Start the connected thread
-            connected(mmSocket, mmDevice); // manageConnectedSocket(cwjSocket); 管理一个已经连接的RFCOMM通道在单独的线程。
+            connected(mmSocket, mmDevice); // manageConnectedSocket(cwjSocket); Manage an already connected RFCOMM channel in a separate thread.
 
 
         }
@@ -427,13 +428,13 @@ public class BluetoothService {
     }
 
     /**
-     * 在Java上处理数据流很简单，提供了InputSream、OutputSream和字节数组的之间的转化。
+     * Processing data flow on Java is very simple, providing conversion between InputSream, OutputSream and byte arrays.
      * This thread runs during a connection with a remote device.
      * It handles all incoming and outgoing transmissions.
      */
     @SuppressLint("SimpleDateFormat")
-    private class ConnectedThread extends Thread {//여기 이 스레드가 해당 소캣으로 요청보내고 받아오고 하는 클래스
-        private final BluetoothSocket mmSocket; // 客户端
+    private class ConnectedThread extends Thread {// Main communication
+        private final BluetoothSocket mmSocket; // Client
         private final InputStream mmInStream;
         private final OutputStream mmOutStream;
 
@@ -442,13 +443,13 @@ public class BluetoothService {
         public ConnectedThread(BluetoothSocket socket) {
             Log.d(TAG, "create ConnectedThread");
             mmSocket = socket;
-            InputStream tmpIn = null; // 上面定义的为final这是使用temp临时对象
+            InputStream tmpIn = null; // The above definition is final, which uses temp temporary objects
             OutputStream tmpOut = null;
             // ObjectOutputStream tmpObjOut = null;
 
             // Get the BluetoothSocket input and output streams
             try {
-                tmpIn = socket.getInputStream(); //使用getInputStream作为一个流处理
+                tmpIn = socket.getInputStream(); //Use getInputStream as a stream processing
                 tmpOut = socket.getOutputStream();
 
 
@@ -463,7 +464,7 @@ public class BluetoothService {
         }
 
         public void run() {
-            // 在这里一个字节一个字节的读取，并进行协议判断
+            // Read byte by byte here, and perform protocol judgment
             Log.i(TAG, "=== BEGIN mConnectedThread ===");
             int len_mid = 0;
             if (MRDMainActivity.bts_WHO == 1) {
@@ -471,9 +472,9 @@ public class BluetoothService {
             } else {
                 len_mid = 4;
             }
-            List<Byte> iTmpUARTBuffer = new ArrayList<Byte>(); // 定义上行数据包缓冲区
+            List<Byte> iTmpUARTBuffer = new ArrayList<Byte>(); // Define upstream packet buffer
             List<Integer> checkBuffer = new ArrayList<Integer>();
-            List<Byte> UARTBuffer = new ArrayList<Byte>(); // 完成的数据包存储区
+            List<Byte> UARTBuffer = new ArrayList<Byte>(); // Completed packet storage area
             int iTmp, iCheck, iCmd, iSta, iVolt, iRead, iLen, bytes, iPID, iiLen, iRPDID,GID = 0;
             // iCheck为明文校验和
             long iiRead = 0, iMID_temp = 0;
@@ -501,27 +502,27 @@ public class BluetoothService {
                     continue;
                 }
 
-                if (bytes != 0x24 && iTmpUARTBuffer.size() == 0) { // 串口上行数据协议    帧头（0x24）
+                if (bytes != 0x24 && iTmpUARTBuffer.size() == 0) { //Serial Uplink Data Protocol Frame Header（0x24）
                     continue;
                 }
 
-                iTmpUARTBuffer.add((byte) bytes);//그 다음  iTmpUARTBuffer 여기로들어가고
+                iTmpUARTBuffer.add((byte) bytes); //Raw Uplink Data
                 checkBuffer.add(bytes);
                 if (iTmpUARTBuffer.size() < 2) {
                     continue;
                 }
-                // 取出密文长度
-                iiLen = iTmpUARTBuffer.get(1); // 密文长度(从PIDH~CS字节加密后的数据长度),一个字节
-                if (iiLen < 5 + len_mid || iiLen > 24 + len_mid) {  //最小长度是8， 最大长度是27 = 8+16+3
+                // Extract the length of the ciphertext
+                iiLen = iTmpUARTBuffer.get(1); // Cipher text length (data length encrypted from PIDH~CS bytes), one byte
+                if (iiLen < 5 + len_mid || iiLen > 24 + len_mid) {  //The minimum length is 8, the maximum length is 27 = 8+16+3
                     Log.e(TAG, "암호문 길이가 잘못되었습니다.");
                     iTmpUARTBuffer.clear();
                     checkBuffer.clear();
                     continue;
                 }
-                // 取出数据包总长度
-                iLen = iiLen + 3;  // 数据包总长度
+                // Total length of data packet taken out
+                iLen = iiLen + 3;  // Total length of data packet
 
-                //得到的总长度小于数据包总长度，重来
+                //The total length obtained is less than the total length of the data packet, repeat
                 if (iTmpUARTBuffer.size() < iLen) {
                     continue;
                 }
@@ -543,12 +544,12 @@ public class BluetoothService {
                 }
 
 
-                // 计算明文校验和，从PIDH~RSSI的校验和取低字节。W
+                // Calculate the checksum of the plaintext, and take the low byte from the checksum of PIDH~RSSI. W
                 for (iCheck = 0, iTmp = 0; iTmp < iLen - 1; iTmp++) {
                     iCheck += (iTmpUARTBuffer.get(iTmp) & 0xFF);
                 }
                 if ((iTmpUARTBuffer.get(iLen - 1) & 0xFF) != (iCheck & 0xFF)) {
-                    Log.e(TAG, "解密前的数据校验错误");
+                    Log.e(TAG, "Data verification error before decryption");
                     iTmpUARTBuffer.clear();
                     checkBuffer.clear();
                     continue;
@@ -569,12 +570,13 @@ public class BluetoothService {
                 // Log.i(TAG, "=== rec data ===" + readMessage);
                 /******************************* FOR DEBUG ***********************************/
 
-                // 校验对了，接下来应该把数据取出来进行解密操作，首先去掉头和尾,顺序一定要注意
-                iTmpUARTBuffer.remove(iLen - 1);  // 丢掉尾SUM
-                iTmpUARTBuffer.remove(1); // 密文长度  从PIDH~CS字节加密后的数据长度
-                iTmpUARTBuffer.remove(0); // FH 上行帧头 0x24
+                //The verification is correct, then the data should be taken out for decryption operation, first remove the head and tail, the order must be paid attention to                
+                iTmpUARTBuffer.remove(iLen - 1);  // Throw away the tail SUM
+                iTmpUARTBuffer.remove(1); // Cipher text length Encrypted data length from PIDH~CS bytes
+                iTmpUARTBuffer.remove(0); // FH upstream frame header 0x24
                 UARTBuffer.clear();
-                UARTBuffer = MDEnCodeAndDeCode.DeCode(iTmpUARTBuffer, iiLen); // 그다음  UARTBuffer 여기로
+                UARTBuffer = MDEnCodeAndDeCode.DeCode(iTmpUARTBuffer, iiLen); // Decoded Uplink Data
+                
                 /////////////////////////////////////////////////////////////////////////////////////////////////
                 byte[] dcmsg = new byte[UARTBuffer.size()];
                 for (int i = 0; i < UARTBuffer.size(); i++) {
@@ -594,7 +596,7 @@ public class BluetoothService {
                 iTmpUARTBuffer.clear();
                 checkBuffer.clear();
                 iLen = UARTBuffer.size();
-                // 计算明文校验
+                // Calculate plaintext check
                 for (iCheck = 0, iTmp = 0; iTmp < iLen - 1; iTmp++) {
                     iCheck += (UARTBuffer.get(iTmp) & 0xFF);
                 }
@@ -602,7 +604,7 @@ public class BluetoothService {
                 if ((UARTBuffer.get(iLen - 1) & 0xFF) != (iCheck & 0xFF)) {
                     iTmpUARTBuffer.clear();
                     checkBuffer.clear();
-                    Log.e(TAG, "解密后的数据校验错误");
+                    Log.e(TAG, "Data verification error after decryption");
                     continue;
                 }
 
@@ -621,23 +623,24 @@ public class BluetoothService {
                 // Log.i("=== rec data ===", readMessage);
                 /******************************* FOR DEBUG ***********************************/
 
-                // 取出项目ID
+                // Get project ID
                 iPID = (UARTBuffer.get(1) & 0xFF);
                 iPID |= ((UARTBuffer.get(0) << 8) & 0xFF00);
                 MRDFirmwareStatus.setpID(iPID);
                 Log.d("블루투스 모드", "" + len_mid);
 
                 Message message = new Message();
-                // CTR：控制字，0x00=上行用户数据；0x01=上行RHU-PDAD固件版本信息;
-                // 0x02=上行升级请求数据包; 0x03~0xFF预留区别信息分类
+         
+                // CTR: control word, 0x00=uplink user data; 0x01=uplink RHU-PDAD firmware version information;
+                // 0x02=Uplink upgrade request data packet; 0x03~0xFF reserved distinguishing information classification
                 switch (UARTBuffer.get(4)) { // 여기서 어떤 요청이엿냐에 따라 갈림################################
                     case 0x00:
                         if (len_mid == 4) {
-                            if (UARTBuffer.size() != 24) { // 24只是密文的总长度
+                            if (UARTBuffer.size() != 24) { // 24 is just the total length of the ciphertext
                                 break;
                             }
                         } else if (len_mid == 13) {
-                            if (UARTBuffer.size() != 33) { // 24只是密文的总长度
+                            if (UARTBuffer.size() != 33) { // 24 is just the total length of the ciphertext
                                 break;
                             }
                         }
@@ -657,38 +660,38 @@ public class BluetoothService {
                             iMID = String.valueOf(iMID_temp);
                         }
 
-                        // RPDID 集中器ID
+                        // RPDID Concentrator ID
                         iRPDID = (UARTBuffer.get(9 + len_mid) & 0xFF);
                         iRPDID |= ((UARTBuffer.get(8 + len_mid) << 8) & 0xFF00);
                         iRPDID |= ((UARTBuffer.get(7 + len_mid) << 16) & 0xFF0000);
-                        // 取出多个命令字
-                        iCmd = (UARTBuffer.get(6 + len_mid) & 0xFF); // TPN 表计属性
-                        iSta = (UARTBuffer.get(11 + len_mid) & 0xFF); // 表的状态字
-                        iVolt = (UARTBuffer.get(12 + len_mid) & 0xFF); // 电压，安全电压3.1V
-                        // 取出表读数
-                        iRead = (UARTBuffer.get(16 + len_mid) & 0xFF); // 读数
+                        // Take out multiple command words
+                        iCmd = (UARTBuffer.get(6 + len_mid) & 0xFF); // TPN Meter properties
+                        iSta = (UARTBuffer.get(11 + len_mid) & 0xFF); // Status word
+                        iVolt = (UARTBuffer.get(12 + len_mid) & 0xFF); // Voltage, safety voltage 3.1V
+                        // Take out the meter reading
+                        iRead = (UARTBuffer.get(16 + len_mid) & 0xFF); // reading
                         iRead |= ((UARTBuffer.get(15 + len_mid) << 8) & 0xFF00);
                         iRead |= ((UARTBuffer.get(14 + len_mid) << 16) & 0xFF0000);
                         iRead |= ((UARTBuffer.get(13 + len_mid) << 24) & 0xFF000000);
 
                         MDUpDataPro md_up_data = new MDUpDataPro();
-                        // 取出RHU电池电压，单位为百分比
+                        // Take out RHU battery voltage, the unit is percentage
                         md_up_data.setM_RHU_Battery(UARTBuffer.get(3));
-                        // 取出场强值
+                        // Take out the field strength value
                         md_up_data.setM_Meter_MDRSSI(UARTBuffer.get(18 + len_mid));
 
-                        // 取出RPR
+                        // Take out RPR
                         md_up_data.setM_Meter_RPR(UARTBuffer.get(10 + len_mid));
-                        // 取出PID
+                        // Take out PID
                         md_up_data.setM_Meter_PID(MRDFirmwareStatus.getpID());
-                        // 取出表ID
+                        // Remove table ID
                         md_up_data.setM_Meter_ID(iMID);
 
                         Log.d("아이디", "아이디 스트링 : " + iMID);
 
                         // get RPDID
                         md_up_data.setM_Meter_RPDID(iRPDID);
-                        // 取出表类型
+                        // Remove table type
                         switch (iCmd & 0xC0) {
                             case 0x00:
                                 md_up_data.setM_Meter_Type((byte) 0x00);
