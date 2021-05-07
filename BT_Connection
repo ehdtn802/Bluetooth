@@ -466,12 +466,7 @@ public class BluetoothService {
         public void run() {
             // Read byte by byte here, and perform protocol judgment
             Log.i(TAG, "=== BEGIN mConnectedThread ===");
-            int len_mid = 0;
-            if (MRDMainActivity.bts_WHO == 1) {
-                len_mid = 13;
-            } else {
-                len_mid = 4;
-            }
+            int len_mid = 4;
             List<Byte> iTmpUARTBuffer = new ArrayList<Byte>(); // Define upstream packet buffer
             List<Integer> checkBuffer = new ArrayList<Integer>();
             List<Byte> UARTBuffer = new ArrayList<Byte>(); // Completed packet storage area
@@ -627,47 +622,27 @@ public class BluetoothService {
                 iPID = (UARTBuffer.get(1) & 0xFF);
                 iPID |= ((UARTBuffer.get(0) << 8) & 0xFF00);
                 MRDFirmwareStatus.setpID(iPID);
-                Log.d("블루투스 모드", "" + len_mid);
-
                 Message message = new Message();
          
                 // CTR: control word, 0x00=uplink user data; 0x01=uplink RHU-PDAD firmware version information;
                 // 0x02=Uplink upgrade request data packet; 0x03~0xFF reserved distinguishing information classification
-                switch (UARTBuffer.get(4)) { // 여기서 어떤 요청이엿냐에 따라 갈림################################
+                switch (UARTBuffer.get(4)) { //case COMMAND //여기서 부터 GENERAL하게 바꿔야 함
                     case 0x00:
-                        if (len_mid == 4) {
-                            if (UARTBuffer.size() != 24) { // 24 is just the total length of the ciphertext
+                         if (UARTBuffer.size() != 24) { // 24 is just the total length of the ciphertext
                                 break;
-                            }
-                        } else if (len_mid == 13) {
-                            if (UARTBuffer.size() != 33) { // 24 is just the total length of the ciphertext
-                                break;
-                            }
-                        }
+                         }
+                       
 
 
-                        if (len_mid == 13) {
-                            for (int i = 6; i < 5 + len_mid; i++) {
-                                if (!((int) (UARTBuffer.get(i)) == 0)) {
-                                    iMID += (char) ((int) (UARTBuffer.get(i)));
-                                }
-                            }
-                        } else {
-                            iMID_temp = (UARTBuffer.get(5 + len_mid) & 0xFF);
-                            iMID_temp |= ((UARTBuffer.get(4 + len_mid) << 8) & 0xFF00);
-                            iMID_temp |= ((UARTBuffer.get(3 + len_mid) << 16) & 0xFF0000);
-                            iMID_temp |= ((UARTBuffer.get(2 + len_mid) << 24) & 0xFF000000);
-                            iMID = String.valueOf(iMID_temp);
-                        }
-
-                        // RPDID Concentrator ID
-                        iRPDID = (UARTBuffer.get(9 + len_mid) & 0xFF);
-                        iRPDID |= ((UARTBuffer.get(8 + len_mid) << 8) & 0xFF00);
-                        iRPDID |= ((UARTBuffer.get(7 + len_mid) << 16) & 0xFF0000);
-                        // Take out multiple command words
-                        iCmd = (UARTBuffer.get(6 + len_mid) & 0xFF); // TPN Meter properties
-                        iSta = (UARTBuffer.get(11 + len_mid) & 0xFF); // Status word
+                      
+                         iMID_temp = (UARTBuffer.get(5 + len_mid) & 0xFF);
+                         iMID_temp |= ((UARTBuffer.get(4 + len_mid) << 8) & 0xFF00);
+                         iMID_temp |= ((UARTBuffer.get(3 + len_mid) << 16) & 0xFF0000);
+                         iMID_temp |= ((UARTBuffer.get(2 + len_mid) << 24) & 0xFF000000);
+                         iMID = String.valueOf(iMID_temp);
+                       
                         iVolt = (UARTBuffer.get(12 + len_mid) & 0xFF); // Voltage, safety voltage 3.1V
+                        
                         // Take out the meter reading
                         iRead = (UARTBuffer.get(16 + len_mid) & 0xFF); // reading
                         iRead |= ((UARTBuffer.get(15 + len_mid) << 8) & 0xFF00);
@@ -675,15 +650,7 @@ public class BluetoothService {
                         iRead |= ((UARTBuffer.get(13 + len_mid) << 24) & 0xFF000000);
 
                         MDUpDataPro md_up_data = new MDUpDataPro();
-                        // Take out RHU battery voltage, the unit is percentage
-                        md_up_data.setM_RHU_Battery(UARTBuffer.get(3));
-                        // Take out the field strength value
-                        md_up_data.setM_Meter_MDRSSI(UARTBuffer.get(18 + len_mid));
-
-                        // Take out RPR
-                        md_up_data.setM_Meter_RPR(UARTBuffer.get(10 + len_mid));
-                        // Take out PID
-                        md_up_data.setM_Meter_PID(MRDFirmwareStatus.getpID());
+                   
                         // Remove table ID
                         md_up_data.setM_Meter_ID(iMID);
 
