@@ -528,6 +528,7 @@ public class BluetoothService {
                         msg[i] = iTmpUARTBuffer.get(i);
 
                     }
+                /******************************* FOR DEBUG ***********************************/
 
                     StringBuilder sb = new StringBuilder();
                     for (final byte b : msg) {
@@ -536,6 +537,8 @@ public class BluetoothService {
                     Log.d("UpData Stream", "Law Msg : " + checkBuffer);
 
                     Log.d("UpData Stream", "Law Msg(hex) : " + sb.toString());
+               /******************************* FOR DEBUG ***********************************/
+
                 }
 
 
@@ -550,21 +553,6 @@ public class BluetoothService {
                     continue;
                 }
 
-                /******************************* FOR DEBUG ***********************************/
-                // String readMessage = "";
-                // for (iTmp = 0; iTmp < iLen; iTmp++) {
-                // if (iTmpUARTBuffer.get(iTmp) < 0) {
-                // readMessage += Integer.toHexString((255 + iTmpUARTBuffer
-                // .get(iTmp)) + 1);
-                // } else {
-                // readMessage += Integer
-                // .toHexString(iTmpUARTBuffer.get(iTmp));
-                // }
-                // readMessage += " ";
-                // }
-                // Log.i(TAG, "=== rec data ===" + readMessage);
-                /******************************* FOR DEBUG ***********************************/
-
                 //The verification is correct, then the data should be taken out for decryption operation, first remove the head and tail, the order must be paid attention to                
                 iTmpUARTBuffer.remove(iLen - 1);  // Throw away the tail SUM
                 iTmpUARTBuffer.remove(1); // Cipher text length Encrypted data length from PIDH~CS bytes
@@ -572,11 +560,11 @@ public class BluetoothService {
                 UARTBuffer.clear();
                 UARTBuffer = MDEnCodeAndDeCode.DeCode(iTmpUARTBuffer, iiLen); // Decoded Uplink Data
                 
-                /////////////////////////////////////////////////////////////////////////////////////////////////
                 byte[] dcmsg = new byte[UARTBuffer.size()];
                 for (int i = 0; i < UARTBuffer.size(); i++) {
                     dcmsg[i] = UARTBuffer.get(i);
                 }
+                /******************************* FOR DEBUG ***********************************/
 
                 StringBuilder sb = new StringBuilder();
                 for (final byte b : dcmsg) {
@@ -585,9 +573,9 @@ public class BluetoothService {
                 Log.d("UpData Stream", "Decode Msg : " + UARTBuffer);
 
                 Log.d("UpData Stream", "Decode Msg(hex) : " + sb.toString());
+                /******************************* FOR DEBUG ***********************************/
 
 
-                /////////////////////////////////////////////////////////////////////////
                 iTmpUARTBuffer.clear();
                 checkBuffer.clear();
                 iLen = UARTBuffer.size();
@@ -603,288 +591,39 @@ public class BluetoothService {
                     continue;
                 }
 
-                /******************************* FOR DEBUG ***********************************/
-                // String readMessage = "";
-                // for (iTmp = 0; iTmp < iLen; iTmp++) {
-                // if (UARTBuffer.get(iTmp) < 0) {
-                // readMessage += Integer.toHexString((255 + UARTBuffer
-                // .get(iTmp)) + 1);
-                // } else {
-                // readMessage += Integer
-                // .toHexString(UARTBuffer.get(iTmp));
-                // }
-                // readMessage += " ";
-                // }
-                // Log.i("=== rec data ===", readMessage);
-                /******************************* FOR DEBUG ***********************************/
-
+        
                 // Get project ID
                 iPID = (UARTBuffer.get(1) & 0xFF);
                 iPID |= ((UARTBuffer.get(0) << 8) & 0xFF00);
                 MRDFirmwareStatus.setpID(iPID);
+                
                 Message message = new Message();
          
                 // CTR: control word, 0x00=uplink user data; 0x01=uplink RHU-PDAD firmware version information;
                 // 0x02=Uplink upgrade request data packet; 0x03~0xFF reserved distinguishing information classification
-                switch (UARTBuffer.get(4)) { //case COMMAND //여기서 부터 GENERAL하게 바꿔야 함
+                switch (UARTBuffer.get(4)) { //case COMMAND 
                     case 0x00:
                          if (UARTBuffer.size() != 24) { // 24 is just the total length of the ciphertext
                                 break;
                          }
-                       
-
-
-                      
+                         //iMID_temp : 4byte data
                          iMID_temp = (UARTBuffer.get(5 + len_mid) & 0xFF);
                          iMID_temp |= ((UARTBuffer.get(4 + len_mid) << 8) & 0xFF00);
                          iMID_temp |= ((UARTBuffer.get(3 + len_mid) << 16) & 0xFF0000);
                          iMID_temp |= ((UARTBuffer.get(2 + len_mid) << 24) & 0xFF000000);
+                         //get String
                          iMID = String.valueOf(iMID_temp);
-                       
-                        iVolt = (UARTBuffer.get(12 + len_mid) & 0xFF); // Voltage, safety voltage 3.1V
-                        
-                        // Take out the meter reading
-                        iRead = (UARTBuffer.get(16 + len_mid) & 0xFF); // reading
-                        iRead |= ((UARTBuffer.get(15 + len_mid) << 8) & 0xFF00);
-                        iRead |= ((UARTBuffer.get(14 + len_mid) << 16) & 0xFF0000);
-                        iRead |= ((UARTBuffer.get(13 + len_mid) << 24) & 0xFF000000);
-
-                        MDUpDataPro md_up_data = new MDUpDataPro();
-                   
-                        // Remove table ID
-                        md_up_data.setM_Meter_ID(iMID);
-
-                        Log.d("아이디", "아이디 스트링 : " + iMID);
-
-                        // get RPDID
-                        md_up_data.setM_Meter_RPDID(iRPDID);
-                        // Remove table type
-                        switch (iCmd & 0xC0) {
-                            case 0x00:
-                                md_up_data.setM_Meter_Type((byte) 0x00);
-                                break;
-                            case 0x40:
-                                md_up_data.setM_Meter_Type((byte) 0x01);
-                                break;
-                            case 0x80:
-                                md_up_data.setM_Meter_Type((byte) 0x02);
-                                break;
-                            default:
-                                break;
-                        }
-                        // 取出表脉冲常数
-                        md_up_data.setM_Meter_PN((iCmd & 0x07));
-                        // 取出计量故障标志
-                        md_up_data.setM_Meter_MeasureFail((iSta & 0x02) >> 1);
-                        // 取出阀门状态
-                        md_up_data.setM_Meter_ValveState((iSta & 0x04) >> 2);
-                        // 取出断线状态
-                        md_up_data.setM_Meter_valveFault((iSta & 0x80) >> 7);
-                        // 取出数据方向
-                        md_up_data.setM_Meter_DataDirection((iSta & 0x40) >> 6);
-                        // 取出计量模式
-                        md_up_data.setM_Meter_MeasurementMode((iCmd & 0x20) >> 5);
-                        // 取出磁攻击状态
-                        md_up_data.setM_Meter_bAttack((iSta & 0x20) >> 5);
-                        // 取出测试信号标志
-                        md_up_data.setM_Meter_powerFail((iSta & 0x10) >> 4);
-                        // 取出DER状态
-                        md_up_data.setM_Meter_DER((iSta & 0x08) >> 3);
-
-                        Log.d("배터리값 :", "" + iVolt);
-                        // 取出电压
-
-                        if (MRDMainActivity.bts_WHO == 1) {
-                            if (MRDMainActivity.mB11BEnable.equals("1")) {
-                                BigDecimal iVolt_double = new BigDecimal("0");
-                                BigDecimal voltage_int = new BigDecimal(String.valueOf((iVolt & 0x7F)));
-                                BigDecimal constant = new BigDecimal("10");
-                                iVolt_double = voltage_int.divide(constant, 1, BigDecimal.ROUND_DOWN);
-                                md_up_data
-                                        .setM_Meter_Voltage(Double.parseDouble(iVolt_double.toString()));
-                            } else {
-                                BigDecimal iVolt_double = new BigDecimal("0");
-                                BigDecimal voltage_int = new BigDecimal(String.valueOf((iVolt & 0xFF)));
-                                BigDecimal constant = new BigDecimal("10");
-                                iVolt_double = voltage_int.divide(constant, 1, BigDecimal.ROUND_DOWN);
-                                md_up_data
-                                        .setM_Meter_Voltage(Double.parseDouble(iVolt_double.toString()));
-                            }
-                        } else {
-                            if (MRDMainActivity.mB11BEnable.equals("1")) {
-                                md_up_data
-                                        .setM_Meter_Voltage((double) (((iVolt & 0x7F) * 1.00) / 21.6));
-                            } else {
-                                md_up_data
-                                        .setM_Meter_Voltage((double) (((iVolt & 0xFF) * 1.00) / 21.6));
-                            }
-                        }
-
-                        // 解析读数
-                        iiRead = MRDMainActivity.getUnsignedIntt(iRead);
-                        switch (md_up_data.getM_Meter_PN()) {
-                            case 0x00: // PN=000: 直读表；
-                                md_up_data.setM_Meter_Reading(iiRead);
-                                break;
-                            case 0x03:  // PN=011: 1个计量脉冲计1升
-                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 1000);
-                                break;
-                            case 0x04: // PN=100: 1个计量脉冲计10升；
-                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 100);
-                                break;
-                            case 0x05: // PN=101: 1个计量脉冲计100升；
-                                md_up_data.setM_Meter_Reading((iiRead * 1.00) / 10);
-                                break;
-                            case 0x06: // PN=110: 1个计量脉冲计1000升；
-                                md_up_data.setM_Meter_Reading(iiRead);
-                                break;
-                        }
-
-                        md_up_data.InitM_Meter_UserMsg(); //최종적으로  md_up_data 여기로 들어감
-
-                        // 接受时间， 是解析数据包后，web服务器的及时时间
-                        md_up_data.setM_Meter_ReadTime((new SimpleDateFormat(
-                                "yyyy-MM-dd HH:mm:ss"))
-                                .format(new java.util.Date()));
-                        // 数据解析完毕,发送消息到UI主线程，进行UI更新     //传递给UI线程
-
+                         
+                         //iVolt : 소숫점 두자리, 오차 계산
+                         BigDecimal iVolt_double = new BigDecimal("0");
+                         BigDecimal voltage_int = new BigDecimal(String.valueOf((iVolt & 0x7F)));
+                         BigDecimal constant = new BigDecimal("10");
+                         iVolt_double = voltage_int.divide(constant, 1, BigDecimal.ROUND_DOWN);
 
                         Log.d("sendToHandler", "Handler Msg : " + md_up_data);
                         iMID = "";
                         mHandler.obtainMessage(MRDMainActivity.MESSAGE_UIUPDATA,
                                 md_up_data).sendToTarget();
-                        break;
-
-                    case 0x01:
-                        Log.i(TAG, "=== 收到RHU上报的版本信息 ===");
-                        // 当前返回有4种情况：
-                        // HAC-RHU-BOOT V
-                        // HAC-RHU-PDAD V
-                        // HAC-RHU-B21A V
-                        // HAC-RHU-PADT V
-                        // HAC-WTT-RHU V
-                        if ((UARTBuffer.get(10 + len_mid) != 'B') || (UARTBuffer.get(11 + len_mid) != '2')
-                                || (UARTBuffer.get(12 + len_mid) != '1') || (UARTBuffer.get(13 + len_mid) != 'A')) {
-                            // 当前RHU不是PDAD，需要把程序升级为PDAD
-//						Log.i(TAG, "=== 收到RHU上报的设备信息不是HAC-RHU-PDAD ===");
-                            message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
-                            mHandler.sendMessage(message);
-                            // 开始升级，发送命令使RHU进入升级状态
-                            write(MDEnCodeAndDeCode
-                                    .StartUpgrade_OneRHU_MD(MRDFirmwareStatus.getpID()));
-                        } else if ((int) (UARTBuffer.get(16 + len_mid) & 0x00FF) < MRDFirmwareStatus
-                                .getiVer()) {
-                            // 当前RHU不是最新版本, 需要进行版本升级
-//						Log.i(TAG, "=== 当前RHU不是最新版本, 需要进行版本升级 ===");
-                            message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
-                            mHandler.sendMessage(message);
-                            // 开始升级，发送命令使RHU进入升级状态
-                            write(MDEnCodeAndDeCode
-                                    .StartUpgrade_OneRHU_MD(MRDFirmwareStatus.getpID()));
-                        } else {
-                            // 这是不需要升级，清空保存的升级数据
-                            MRDFirmwareStatus.setDataPacketClear();
-                            message.what = MRDMainActivity.MESSAGE_PID_SUCCESS;
-                            mHandler.sendMessage(message);
-                            break;
-                        }
-                        break;
-
-                    case 0x02:
-                        switch (UARTBuffer.get(7)) {
-                            case 0x01:
-                                // 请求获取升级包包数和总的CRC校验，需要回复
-                                Log.i(TAG, "=== 请求获取升级包大小 ===");
-                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
-                                mHandler.sendMessage(message);
-                                write(MDEnCodeAndDeCode.SendFirmwareInfo_OneMR(
-                                        MRDFirmwareStatus.getpID(),
-                                        MRDFirmwareStatus.getPacketSize()));
-                                break;
-                            case 0x02:
-                                // 请求的升级包序号,需要回复相应的数据包
-                                MRDFirmwareStatus.setPackgeSeq(UARTBuffer.get(8));
-                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE;
-                                mHandler.sendMessage(message);
-                                Log.i(TAG, "=== 请求的升级包序号 ===" + UARTBuffer.get(8));
-                                write(MDEnCodeAndDeCode
-                                        .SendFirmwareData_OneMR(UARTBuffer.get(8)));
-
-
-                                break;
-                            case 0x03:
-                                // 升级成功, 正在跳转至应用程序
-                                Log.i(TAG, "=== RHU升级成功 ===");
-                                message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_SUCCESS;
-                                mHandler.sendMessage(message);
-                                break;
-                            case 0x04:
-                                if (UARTBuffer.get(8) == 0x01) {
-                                    Log.i(TAG, "=== 程序校验失败 ===");
-                                    message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_CSERROR;
-                                } else if (UARTBuffer.get(8) == 0x02) {
-                                    Log.i(TAG, "=== 升级程序接收超时 ===");
-                                    message.what = MRDMainActivity.MESSAGE_RHU_UPDATE_TIMEOUT;
-                                }
-                                mHandler.sendMessage(message);
-                                break;
-                        }
-                        break;
-
-                    case 0x03: //AMI-R 버전 수신
-                        Log.d("AMI-R", "버전 : " + UARTBuffer.get(2) + " " + UARTBuffer.get(3));
-                        break;
-
-                    case 0x04: //그룹 ID 변경 성공여부 확인
-                        Log.d("버전 확인 테스트", "버전 : " + UARTBuffer.get(0) + " " + UARTBuffer.get(1));
-                        Message msgGID = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
-                        Bundle bundleGID = new Bundle();
-                        bundleGID.putString(MRDMainActivity.SET_MODE, "GID");
-                        msgGID.setData(bundleGID);
-                        mHandler.sendMessage(msgGID);
-                        break;
-
-                    case 0x05: //RF모드 변경 성공여부 확인
-                        Log.d("RF모드 변경", "CTR : " + UARTBuffer.get(4));
-                        Message msgRF = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
-                        Bundle bundleRF = new Bundle();
-                        bundleRF.putString(MRDMainActivity.SET_MODE, "RF");
-                        msgRF.setData(bundleRF);
-                        mHandler.sendMessage(msgRF);
-                        break;
-
-                    case 0x06: //리셋 성공 여부 확인
-                        Log.d("리셋", "CTR : " + UARTBuffer.get(4));
-                        Message msgRS = mHandler.obtainMessage(MRDMainActivity.MESSAGE_SET_MODE);
-                        Bundle bundleRS = new Bundle();
-                        bundleRS.putString(MRDMainActivity.SET_MODE, "RESET");
-                        msgRS.setData(bundleRS);
-                        mHandler.sendMessage(msgRS);
-                        break;
-
-                    case 0x07: //그룹검침 준비 완료
-                        GID = (UARTBuffer.get(8) & 0xFF); // 读数
-                        GID |= ((UARTBuffer.get(7) << 8) & 0xFF00);
-                        GID |= ((UARTBuffer.get(6) << 16) & 0xFF0000);
-                        GID |= ((UARTBuffer.get(5) << 24) & 0xFF000000);
-                        Log.d("그룹검침 준비완료", "그룹ID : " + GID );
-                        if(GID == Integer.parseInt(MRDMainActivity.gr_id.getText().toString())){
-                            message.what = MRDMainActivity.MESSAGE_MD_GROUP_READY;
-                            mHandler.sendMessage(message);
-                        }
-                        break;
-
-                    case 0x08: //그룹검침 종료
-                        GID = (UARTBuffer.get(8) & 0xFF); // 读数
-                        GID |= ((UARTBuffer.get(7) << 8) & 0xFF00);
-                        GID |= ((UARTBuffer.get(6) << 16) & 0xFF0000);
-                        GID |= ((UARTBuffer.get(5) << 24) & 0xFF000000);
-                        Log.d("그룹검침 종료", "그룹ID : " + GID );
-                        if(GID == Integer.parseInt(MRDMainActivity.gr_id.getText().toString())){
-                            message.what = MRDMainActivity.MESSAGE_MD_GROUP_END;
-                            mHandler.sendMessage(message);
-                        }
-
                         break;
                 }
             }
